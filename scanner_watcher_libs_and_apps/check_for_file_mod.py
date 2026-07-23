@@ -3,14 +3,15 @@
 
 
 import   asyncio
-import   os, sys
-import   subprocess
-import   datetime
+import   sys
+# import   subprocess
+# import   datetime
 
 from     pathlib                    import Path
 
 from     watchdog.events            import FileSystemEvent, FileSystemEventHandler
 from     watchdog.observers.polling import PollingObserver
+from     watchdog.observers         import Observer
 
 
 
@@ -34,25 +35,25 @@ class _EventHandler(FileSystemEventHandler):
       print(event.event_type, event.src_path)
 
       if ((event.event_type == "modified") or (event.event_type == "created") or (event.event_type == "moved")):
-         print ("File: %36s has event: %s" % (os.environ['MRI_SCANNER_RAW_POOL'], event.event_type))
+         print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
 
-      if (event.event_type == "modified"):
-         header_reader_bin = os.environ['MRI_SCANNER_RAW_HEADER_READER']
-         header_pool_file  = os.environ['MRI_SCANNER_RAW_POOL']
-         command_to_run    = [header_reader_bin, '-verbose', header_pool_file]
-         dest_file         = open ('/tmp/active_header_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), 'w+')
-         read_pool_process = subprocess.Popen(
-                                 command_to_run,
-                                 stdout=dest_file,
-                                 stderr=subprocess.PIPE,
-                                 text=True   )
+      # if (event.event_type == "modified"):
+         # header_reader_bin = "/home/rtadmin/RTafni/bin/ReadPool"
+         # header_pool_file  = os.environ['MRI_SCANNER_RAW_POOL']
+         # command_to_run    = [header_reader_bin, '-verbose', header_pool_file]
+         # dest_file         = open ('/tmp/active_header_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), 'w+')
+         # read_pool_process = subprocess.Popen(
+                                 # command_to_run,
+                                 # stdout=dest_file,
+                                 # stderr=subprocess.PIPE,
+                                 # text=True   )
 
-         stdout, stderr    = read_pool_process.communicate()
-         dest_file.close()
+         # stdout, stderr    = read_pool_process.communicate()
+         # dest_file.close()
 
 
 
-def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
+async def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
           recursive: bool = False) -> None:
 
    """Watch a file or directory for changes."""
@@ -60,6 +61,7 @@ def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
    handler = _EventHandler(queue, loop)
 
    observer = PollingObserver()
+   # observer = Observer()
    observer.schedule(handler, str(path), recursive=recursive)
    observer.start()
    print("Observer started")
@@ -70,15 +72,14 @@ def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
 
 if __name__ == "__main__":
 
-   # reading logging location from environment from account running this.
-   try:
-      os.environ['MRI_SCANNER_RAW_POOL']
-   except:
-      print ('\n   !!! Please define the environment variable MRI_SCANNER_RAW_POOL !!!\n')
-      sys.exit(1)
+   if len(sys.argv[1:]) > 0:
+      watched_path = sys.argv[1]
+   else:
+      print("Please specify directory or file to observe")
+      sys.exit(-1)
 
    loop = asyncio.get_event_loop()
    queue = asyncio.Queue()
 
-   asyncio.run(watch(Path(os.getenv('MRI_SCANNER_RAW_POOL')), queue, loop, False))
+   asyncio.run(watch(Path(watched_path), queue, loop, True))
 
