@@ -81,5 +81,9 @@ if __name__ == "__main__":
    loop = asyncio.get_event_loop()
    queue = asyncio.Queue()
 
-   asyncio.run(watch(Path(watched_path), queue, loop, True))
+   try:
+      asyncio.run(watch(Path(watched_path), queue, loop, True))
+   except KeyboardInterrupt:
+      print("Exiting ...")
+      sys.exit(0)
 
