@@ -80,9 +80,9 @@ def process_current_state(state_to_process):
              % (scanner_ae_title, scanner_vendor,
                 datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")))
 
-         for events in time_ordered:
-            print ("Event, %32s, occurred at %26s" % (events[0], events[1]))
-         print ("\n")
+      for events in time_ordered:
+         print ("Event, %32s, occurred at %26s" % (events[0], events[1]))
+      print ("\n")
 
    except:
       # Else just print contents of state directory, regardless of contents
