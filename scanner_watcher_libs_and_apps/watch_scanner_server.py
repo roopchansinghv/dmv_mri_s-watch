@@ -13,7 +13,8 @@ import   socket
 sys.path.insert(0, os.path.abspath('.'))
 import   Siemens
 import   GE
-import   common
+sys.path.insert(0, os.path.abspath('./common'))
+import   mri
 
 
 
@@ -228,7 +229,7 @@ async def main_scanner_observer_task():
                        'MRI_SCANNER_INFO_PUBLISH_TO_HOST',
                        'MRI_SCANNER_INFO_PUBLISH_TO_PORT']
 
-   common.routines.check_env_vars(environment_vars)
+   mri.routines.check_env_vars(environment_vars)
 
    # If all necessary environment variables have been defined, proceed with program
    # execution.
