@@ -71,8 +71,9 @@ def process_current_state(state_to_process):
    scanner_vendor     = state_to_process['scanner vendor']
 
    try:
-      # Convert dictionary of scanner state events directly into time-ordered list,
-      # using lambda function if only time values are stored
+      # Convert dictionary of scanner state events directly into time-ordered
+      # list, using lambda function if only time values are stored as 'values'
+      # in the dictionary.
       time_ordered       = sorted(state_to_process['all_events'].items(),
                                   key=lambda item: item[1], reverse=False)
 
