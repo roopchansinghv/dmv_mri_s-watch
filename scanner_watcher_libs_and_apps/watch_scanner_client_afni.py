@@ -7,8 +7,9 @@ import logging
 import subprocess
 import signal
 
-sys.path.insert(0, os.path.abspath('./common'))
-import mri
+sys.path.insert(0, os.path.abspath('.'))
+import Shared
+
 
 
 state_poll_interval = 0.5   # in seconds
@@ -117,7 +118,7 @@ if __name__ == "__main__":
                        'MRI_SCANNER_DATA_DIR_DICOM',
                        'MRI_SCANNER_DATA_DIR_AFNI']
 
-   mri.routines.check_env_vars(environment_vars)
+   Shared.routines.check_env_vars(environment_vars)
 
    # If all necessary environment variables have been defined, proceed with program
    # execution.

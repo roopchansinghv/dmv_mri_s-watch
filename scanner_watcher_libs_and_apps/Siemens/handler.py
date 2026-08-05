@@ -9,8 +9,8 @@ import      datetime
 import      asyncio
 import      logging
 
-sys.path.insert(0, os.path.abspath('../common'))
-import      mri
+sys.path.insert(0, os.path.abspath('.'))
+import      Shared
 
 
 
@@ -49,7 +49,7 @@ class event_catcher():
                           'MRI_SCANNER_RT_EXPORT_PORT',
                           'MRI_SCANNER_DATA_DIR_DICOM']
 
-      mri.routines.check_env_vars(environment_vars)
+      Shared.routines.check_env_vars(environment_vars)
 
       # If all necessary environment variables have been defined, proceed with program
       # execution.
