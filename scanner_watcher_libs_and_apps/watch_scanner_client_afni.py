@@ -109,7 +109,7 @@ def process_current_state(state_to_process):
 
 
 
-if __name__ == "__main__":
+async def gather_and_run_client_tasks():
 
    # Check for all needed environment variables first!
 
@@ -130,16 +130,23 @@ if __name__ == "__main__":
    global data_being_acquired
    data_being_acquired = False
 
-   loop = asyncio.get_event_loop()
+   client_tasks = []
+
+   task_polling_state = asyncio.create_task(poll_state(state_poll_interval,
+                                            host=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_HOST'],
+                                            port=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_PORT']))
+   client_tasks.append(task_polling_state)
+
+   await asyncio.gather(*client_tasks)
+
+
+
+if __name__ == "__main__":
 
    try:
-      asyncio.ensure_future(poll_state(state_poll_interval,
-                                       host=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_HOST'],
-                                       port=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_PORT']))
-      loop.run_forever()
+      asyncio.run(gather_and_run_client_tasks())
+
    except KeyboardInterrupt:
-      pass
-   finally:
       print("Stopping task.")
-      loop.close()
+      exit(0)
 
