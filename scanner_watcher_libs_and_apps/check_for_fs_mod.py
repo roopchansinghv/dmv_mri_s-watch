@@ -15,6 +15,8 @@ from     watchdog.observers.polling import PollingObserver
 
 
 
+global   file_written
+
 class _EventHandler(FileSystemEventHandler):
 
    def __init__(self, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
@@ -31,17 +33,35 @@ class _EventHandler(FileSystemEventHandler):
    # with catching are *ANY* log changes, except for "on_deleted" -
    # which might be a little harder to deal with ... ;-)
 
-   def on_any_event(self, event: FileSystemEvent) -> None:
+   def on_event(self, event: FileSystemEvent) -> None:
 
       self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
 
-      print(event.event_type, event.src_path)
+      # print(event.event_type, event.src_path)
 
-      if ((event.event_type == "modified") or (event.event_type == "created") or (event.event_type == "moved")):
-         print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
+      # if ((event.event_type == "modified") or (event.event_type == "created") or (event.event_type == "moved")):
+      print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
+
+   def on_modified(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
+
+   def on_deleted(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
+
+   def on_moved(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
+
+   def on_created(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
 
       if (event.event_type == "created"):
          self._observer.stop()
+         global file_written
+         file_written = str(event.src_path)
          return (event.src_path)
 
 
@@ -81,5 +101,7 @@ if __name__ == "__main__":
       loop.close()
       print("Exiting ...")
    finally:
+      global file_written
+      print(f"File written is: {file_written}")
       sys.exit(0)
 
