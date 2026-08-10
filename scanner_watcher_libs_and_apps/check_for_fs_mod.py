@@ -59,10 +59,14 @@ class _EventHandler(FileSystemEventHandler):
       self.on_event(event)
 
       if (event.event_type == "created"):
-         self._observer.stop()
-         global file_written
-         file_written = str(event.src_path)
-         return (event.src_path)
+         if Path.is_dir(event.src_path):
+            print(f"Directory {event.src_path} created, continue watching")
+         elif Path.is_file(event.src_path):
+            global file_written
+            file_written = str(event.src_path)
+            self._observer.stop()
+         else:
+            print(f"Unknown entity {event.src_path} created, continue watching")
 
 
 
