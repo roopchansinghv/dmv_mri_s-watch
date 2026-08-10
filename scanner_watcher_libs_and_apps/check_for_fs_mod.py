@@ -10,18 +10,20 @@ import   sys
 from     pathlib                    import Path
 
 from     watchdog.events            import FileSystemEvent, FileSystemEventHandler
+# from     watchdog.observers         import Observer
 from     watchdog.observers.polling import PollingObserver
-from     watchdog.observers         import Observer
 
 
 
 class _EventHandler(FileSystemEventHandler):
 
    def __init__(self, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
+                observer: watchdog.observers.polling.PollingObserver,
                 *args, **kwargs):
 
-      self._loop = loop
-      self._queue = queue
+      self._loop      = loop
+      self._queue     = queue
+      self._observer  = observer
       super(*args, **kwargs)
 
    # remove all separate def - filesystem events, i.e. "on_modified",
@@ -32,24 +34,15 @@ class _EventHandler(FileSystemEventHandler):
    def on_any_event(self, event: FileSystemEvent) -> None:
 
       self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
+
       print(event.event_type, event.src_path)
 
       if ((event.event_type == "modified") or (event.event_type == "created") or (event.event_type == "moved")):
          print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
 
-      # if (event.event_type == "modified"):
-         # header_reader_bin = "/home/rtadmin/RTafni/bin/ReadPool"
-         # header_pool_file  = os.environ['MRI_SCANNER_RAW_POOL']
-         # command_to_run    = [header_reader_bin, '-verbose', header_pool_file]
-         # dest_file         = open ('/tmp/active_header_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), 'w+')
-         # read_pool_process = subprocess.Popen(
-                                 # command_to_run,
-                                 # stdout=dest_file,
-                                 # stderr=subprocess.PIPE,
-                                 # text=True   )
-
-         # stdout, stderr    = read_pool_process.communicate()
-         # dest_file.close()
+      if (event.event_type == "created"):
+         self._observer.stop()
+         return (event.src_path)
 
 
 
@@ -58,10 +51,11 @@ async def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
 
    """Watch a file or directory for changes."""
 
-   handler = _EventHandler(queue, loop)
-
-   observer = PollingObserver()
    # observer = Observer()
+   observer = PollingObserver()
+
+   handler = _EventHandler(queue, loop, observer)
+
    observer.schedule(handler, str(path), recursive=recursive)
    observer.start()
    print("Observer started")
@@ -78,12 +72,14 @@ if __name__ == "__main__":
       print("Please specify directory or file to observe")
       sys.exit(-1)
 
-   loop = asyncio.get_event_loop()
-   queue = asyncio.Queue()
+   loop   = asyncio.new_event_loop()
+   queue  = asyncio.Queue()
 
    try:
       asyncio.run(watch(Path(watched_path), queue, loop, True))
    except KeyboardInterrupt:
+      loop.close()
       print("Exiting ...")
+   finally:
       sys.exit(0)
 
