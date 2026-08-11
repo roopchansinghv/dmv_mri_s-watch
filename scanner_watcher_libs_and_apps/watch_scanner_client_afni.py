@@ -14,7 +14,6 @@ from     pathlib                    import Path
 
 from     watchdog.events            import FileSystemEvent, FileSystemEventHandler
 from     watchdog.observers.polling import PollingObserver
-from     watchdog.observers         import Observer
 
 
 
@@ -28,7 +27,7 @@ scan_event_logger   = logging.getLogger(__name__)
 
 # create a few global variables to help with scanner state tracking
 global patient_in_scanner, afni_running, pid_afni, data_being_acquired, pid_dimon
-global last_data_dir_dicom
+global last_data_dir_dicom, file_written
 
 
 
@@ -59,18 +58,12 @@ async def poll_state(polling_interval, host = '127.0.0.1', port = 5555):
             + str(data['all_events']) + ' detected at '
             + datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S") + '\n')
 
-      process_current_state (data)  # Pass along request response as json, and
-                                    # process appropriately in calling function.
-
-      # If called here, directory watch task gets called when directory changes
-      # in any way, but doesn't work in parallel/asynchronously.  This is still
-      # a blocking call ...
-      # if (data_being_acquired == True):
-         # await watch(Path(last_data_dir_dicom), True)
+      await process_current_state (data)  # Pass along request response as json, and
+                                          # process appropriately in calling function.
 
 
 
-def process_current_state(state_to_process):
+async def process_current_state(state_to_process):
 
    scanner_events_dict = state_to_process['all_events']
 
@@ -115,6 +108,8 @@ def process_current_state(state_to_process):
 
    if (afni_running    and     (scanner_events_dict['Pulse sequence prepped'] >
                                 scanner_events_dict['Scanner is done acquiring data'])):
+      if (data_being_acquired is False):
+         await watch(Path(last_data_dir_dicom), True)
       data_being_acquired = True
 
    if (data_being_acquired and (scanner_events_dict['Pulse sequence prepped'] <
@@ -129,21 +124,41 @@ def process_current_state(state_to_process):
 
 class _EventHandler(FileSystemEventHandler):
 
-   def __init__(self, *args, **kwargs):
+   def __init__(self, observer: PollingObserver, *args, **kwargs):
 
+      self._observer  = observer
       super(*args, **kwargs)
 
-   # remove all separate def - filesystem events, i.e. "on_modified",
-   # "on_deleted", "on_created", "on_moved" - as all we are concerned
-   # with catching are *ANY* log changes, except for "on_deleted" -
-   # which might be a little harder to deal with ... ;-)
+   def on_event(self, event: FileSystemEvent) -> None:
 
-   def on_any_event(self, event: FileSystemEvent) -> None:
+      print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
 
-      print(event.event_type, event.src_path)
+   def on_modified(self, event: FileSystemEvent) -> None:
 
-      if ((event.event_type == "modified") or (event.event_type == "created") or (event.event_type == "moved")):
-         print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
+      self.on_event(event)
+
+   def on_deleted(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
+
+   def on_moved(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
+
+   def on_created(self, event: FileSystemEvent) -> None:
+
+      self.on_event(event)
+
+      if (event.event_type == "created"):
+         path_object = Path(event.src_path)
+         if Path.is_file(path_object):
+            global file_written
+            file_written = str(event.src_path)
+            self._observer.stop()
+         elif Path.is_dir(path_object):
+            print(f"Directory {event.src_path} created, continue watching")
+         else:
+            print(f"Unknown entity {event.src_path} created, continue watching")
 
 
 
@@ -151,13 +166,14 @@ async def watch(path: Path, recursive: bool = False) -> None:
 
    """Watch a file or directory for changes."""
 
-   handler = _EventHandler()
-
    observer = PollingObserver()
+
+   handler = _EventHandler(observer)
+
    observer.schedule(handler, str(path), recursive=recursive)
    observer.start()
    print("Observer started")
-   observer.join(None) # Remove value or set to None, to allow to run indefinitely
+   # observer.join(None) # Remove value or set to None, to allow to run indefinitely
 
 
 
@@ -184,18 +200,8 @@ async def gather_and_run_client_tasks():
    global last_data_dir_dicom
    last_data_dir_dicom = os.environ['MRI_SCANNER_DATA_DIR_DICOM']
 
-   client_tasks = []
-
-   task_polling_state = asyncio.create_task(poll_state(state_poll_interval,
-                                            host=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_HOST'],
-                                            port=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_PORT']))
-   client_tasks.append(task_polling_state)
-
-   # If implemented here, task queue is blocked
-   # task_watch_dicom_dir = asyncio.create_task(watch(Path(last_data_dir_dicom), True))
-   # client_tasks.append(task_watch_dicom_dir)
-
-   await asyncio.gather(*client_tasks)
+   await(poll_state(state_poll_interval, host=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_HOST'],
+                                         port=os.environ['MRI_SCANNER_INFO_PUBLISH_TO_PORT']))
 
 
 
