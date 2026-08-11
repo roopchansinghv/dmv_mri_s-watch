@@ -4,13 +4,10 @@
 
 import   asyncio
 import   sys
-# import   subprocess
-# import   datetime
 
 from     pathlib                    import Path
 
 from     watchdog.events            import FileSystemEvent, FileSystemEventHandler
-# from     watchdog.observers         import Observer
 from     watchdog.observers.polling import PollingObserver
 
 
@@ -20,26 +17,17 @@ global   file_written
 class _EventHandler(FileSystemEventHandler):
 
    def __init__(self, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
-                observer: watchdog.observers.polling.PollingObserver,
-                *args, **kwargs):
+                observer: PollingObserver, *args, **kwargs):
 
       self._loop      = loop
       self._queue     = queue
       self._observer  = observer
       super(*args, **kwargs)
 
-   # remove all separate def - filesystem events, i.e. "on_modified",
-   # "on_deleted", "on_created", "on_moved" - as all we are concerned
-   # with catching are *ANY* log changes, except for "on_deleted" -
-   # which might be a little harder to deal with ... ;-)
-
    def on_event(self, event: FileSystemEvent) -> None:
 
       self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
 
-      # print(event.event_type, event.src_path)
-
-      # if ((event.event_type == "modified") or (event.event_type == "created") or (event.event_type == "moved")):
       print ("Path: %50s has event: %s" % (event.src_path, event.event_type))
 
    def on_modified(self, event: FileSystemEvent) -> None:
@@ -59,12 +47,13 @@ class _EventHandler(FileSystemEventHandler):
       self.on_event(event)
 
       if (event.event_type == "created"):
-         if Path.is_dir(event.src_path):
-            print(f"Directory {event.src_path} created, continue watching")
-         elif Path.is_file(event.src_path):
+         path_object = Path(event.src_path)
+         if Path.is_file(path_object):
             global file_written
             file_written = str(event.src_path)
             self._observer.stop()
+         elif Path.is_dir(path_object):
+            print(f"Directory {event.src_path} created, continue watching")
          else:
             print(f"Unknown entity {event.src_path} created, continue watching")
 
@@ -75,7 +64,6 @@ async def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
 
    """Watch a file or directory for changes."""
 
-   # observer = Observer()
    observer = PollingObserver()
 
    handler = _EventHandler(queue, loop, observer)
@@ -99,13 +87,15 @@ if __name__ == "__main__":
    loop   = asyncio.new_event_loop()
    queue  = asyncio.Queue()
 
+   global file_written
+   file_written = ''
+
    try:
       asyncio.run(watch(Path(watched_path), queue, loop, True))
    except KeyboardInterrupt:
       loop.close()
       print("Exiting ...")
    finally:
-      global file_written
       print(f"File written is: {file_written}")
       sys.exit(0)
 
