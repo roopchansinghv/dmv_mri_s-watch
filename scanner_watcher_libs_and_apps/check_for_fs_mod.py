@@ -4,6 +4,7 @@
 
 import   asyncio
 import   sys
+import   subprocess
 
 from     pathlib                    import Path
 
@@ -13,6 +14,50 @@ from     watchdog.observers.polling import PollingObserver
 
 
 global   file_written
+
+def send_image_data(sample_image_file, host_dest):
+
+   """
+       Routine that will take first image file written to watched
+       location, should do some basic parsing on that file to get
+       a better idea of what actions to take, and then send data
+       being written to host_dest.
+   """
+
+   # Sample code to parse path of written DICOM file, so that in turn can be
+   # used to get a file pattern that Dimon can use to watch for, and send to
+   # AFNI in real-time or near-real-time
+   #
+   # For GE:
+   #
+   # >>> file_written = '/home/data0/DICOM/p333/e4444/s55555/i88888888.MRDC.1'
+
+   # delimiter = '/'
+   # file_pattern = delimiter.join(sample_image_file.split(delimiter)[:-1]) + delimiter + 'i'
+
+   # For Siemens:
+   #
+   delimiter = '_'
+   file_pattern = delimiter.join(sample_image_file.split(delimiter)[:-1])
+
+   # For GE:
+   #
+   # for EPI images, Dicom tag 0043,107a gives number of time points, and
+   #
+   # tags 0019,109C/109E should give the pulse sequence name
+
+   print(f'Launching Dimon on file pattern {file_pattern}')
+
+   global dimon_process
+   dimon_process = subprocess.Popen(['Dimon', '-quit', '-rt',
+                                     '-host', host_dest,
+                                     '-sort_by_num_suffix',
+                                     '-infile_prefix', file_pattern],
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE,
+                                     text=True)
+
+
 
 class _EventHandler(FileSystemEventHandler):
 
@@ -51,6 +96,7 @@ class _EventHandler(FileSystemEventHandler):
          if Path.is_file(path_object):
             global file_written
             file_written = str(event.src_path)
+            send_image_data(event.src_path, 'localhost')
             self._observer.stop()
          elif Path.is_dir(path_object):
             print(f"Directory {event.src_path} created, continue watching")
