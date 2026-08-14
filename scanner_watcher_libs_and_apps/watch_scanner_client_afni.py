@@ -27,7 +27,7 @@ scan_event_logger   = logging.getLogger(__name__)
 
 # create a few global variables to help with scanner state tracking
 global patient_in_scanner, afni_running, pid_afni, data_being_acquired, pid_dimon
-global last_data_dir_dicom, file_written
+global last_data_dir_dicom, dimon_process
 
 
 
@@ -110,6 +110,7 @@ async def process_current_state(state_to_process):
                                 scanner_events_dict['Scanner is done acquiring data'])):
       if (data_being_acquired is False):
          await watch(Path(last_data_dir_dicom), True)
+
       data_being_acquired = True
 
    if (data_being_acquired and (scanner_events_dict['Pulse sequence prepped'] <
@@ -152,8 +153,7 @@ class _EventHandler(FileSystemEventHandler):
       if (event.event_type == "created"):
          path_object = Path(event.src_path)
          if Path.is_file(path_object):
-            global file_written
-            file_written = str(event.src_path)
+            send_image_data(event.src_path, 'localhost')
             self._observer.stop()
          elif Path.is_dir(path_object):
             print(f"Directory {event.src_path} created, continue watching")
@@ -177,12 +177,68 @@ async def watch(path: Path, recursive: bool = False) -> None:
 
 
 
+def send_image_data(sample_image_file, host_dest):
+
+   """
+       Routine that will take first image file written to watched
+       location, should do some basic parsing on that file to get
+       a better idea of what actions to take, and then send data
+       being written to host_dest.
+   """
+
+   delimiter_path  = '/'
+   scanner_vendor  = os.environ['MRI_SCANNER_VENDOR']
+   file_pattern    = delimiter_path.join(sample_image_file.split(delimiter_path)[:-1]) + delimiter_path + '*.dcm'
+   sort_method     = '-sort_by_num_suffix'
+   # sort_method     = '-dicom_org'
+   drive_afni_opts = ''
+
+   print(f'Working on data from vendor {scanner_vendor} ...')
+
+   if (scanner_vendor == 'GE'):
+
+      file_pattern = delimiter_path.join(sample_image_file.split(delimiter_path)[:-1]) + delimiter_path + 'i'
+
+      # For EPI images, Dicom tag 0043,107a gives number of time points, and
+      #
+      # for all sequences, tags 0019,109C/109E should give the pulse sequence
+      # name
+
+   elif (scanner_vendor == 'Siemens'):
+
+      delimiter    = '_'
+      file_pattern = delimiter.join(sample_image_file.split(delimiter)[:-1])
+
+      # For EPI images, Dicom tag ????,???? gives number of time points, and
+      #
+      # for all sequences, tags 0018,0020/0024 should give the pulse sequence
+      # name
+
+   else:
+
+      print(f'Vendor {scanner_vendor} unsupported - not sending data ...')
+      return
+
+   print(f'Launching Dimon on file pattern {file_pattern}')
+
+   global dimon_process
+   dimon_process = subprocess.Popen(['Dimon', '-quit', '-rt',
+                                     '-host', host_dest,
+                                     sort_method,
+                                     '-infile_prefix', file_pattern],
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE,
+                                     text=True)
+
+
+
 async def gather_and_run_client_tasks():
 
    # Check for all needed environment variables first!
 
    environment_vars = ['MRI_SCANNER_INFO_PUBLISH_TO_HOST',
                        'MRI_SCANNER_INFO_PUBLISH_TO_PORT',
+                       'MRI_SCANNER_VENDOR',
                        'MRI_SCANNER_DATA_DIR_DICOM',
                        'MRI_SCANNER_DATA_DIR_AFNI']
 
