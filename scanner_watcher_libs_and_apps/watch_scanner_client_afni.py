@@ -15,6 +15,8 @@ from     pathlib                    import Path
 from     watchdog.events            import FileSystemEvent, FileSystemEventHandler
 from     watchdog.observers.polling import PollingObserver
 
+import   pydicom
+
 
 
 state_poll_interval = 0.5   # in seconds
@@ -27,7 +29,7 @@ scan_event_logger   = logging.getLogger(__name__)
 
 # create a few global variables to help with scanner state tracking
 global patient_in_scanner, afni_running, pid_afni, data_being_acquired, pid_dimon
-global last_data_dir_dicom, dimon_process
+global last_data_dir_dicom
 
 
 
@@ -94,6 +96,8 @@ async def process_current_state(state_to_process):
                                        stderr=subprocess.PIPE,
                                        text=False)
 
+      scan_event_logger.warning(f"Starting AFNI in directory: {dir_afni}")
+
    if (afni_running and not patient_in_scanner):
       afni_running = False
       scan_event_logger.info("Should stop AFNI now")
@@ -117,7 +121,7 @@ async def process_current_state(state_to_process):
                                 scanner_events_dict['Scanner is done acquiring data'])):
       data_being_acquired = False
 
-   scan_event_logger.warning(f"patient_in_scanner = {patient_in_scanner}, afni_running = {afni_running}, data_being_acquired = {data_being_acquired}, current_data_dir_dicom = {last_data_dir_dicom}")
+   scan_event_logger.debug(f"patient_in_scanner = {patient_in_scanner}, afni_running = {afni_running}, data_being_acquired = {data_being_acquired}, current_data_dir_dicom = {last_data_dir_dicom}")
 
    return
 
@@ -156,9 +160,9 @@ class _EventHandler(FileSystemEventHandler):
             send_image_data(event.src_path, 'localhost')
             self._observer.stop()
          elif Path.is_dir(path_object):
-            print(f"Directory {event.src_path} created, continue watching")
+            scan_event_logger.debug(f"Directory {event.src_path} created, continue watching")
          else:
-            print(f"Unknown entity {event.src_path} created, continue watching")
+            scan_event_logger.debug(f"Unknown entity {event.src_path} created, continue watching")
 
 
 
@@ -189,46 +193,72 @@ def send_image_data(sample_image_file, host_dest):
    delimiter_path  = '/'
    scanner_vendor  = os.environ['MRI_SCANNER_VENDOR']
    file_pattern    = delimiter_path.join(sample_image_file.split(delimiter_path)[:-1]) + delimiter_path + '*.dcm'
-   sort_method     = '-sort_by_num_suffix'
-   # sort_method     = '-dicom_org'
+   sort_method     = '-dicom_org'
    drive_afni_opts = ''
+   host_afni       = host_dest
 
-   print(f'Working on data from vendor {scanner_vendor} ...')
+   scan_event_logger.debug(f'Working on data from vendor {scanner_vendor} ...')
 
    if (scanner_vendor == 'GE'):
 
-      file_pattern = delimiter_path.join(sample_image_file.split(delimiter_path)[:-1]) + delimiter_path + 'i'
+      file_pattern    = delimiter_path.join(sample_image_file.split(delimiter_path)[:-1] + ['i'])
 
-      # For EPI images, Dicom tag 0043,107a gives number of time points, and
-      #
-      # for all sequences, tags 0019,109C/109E should give the pulse sequence
-      # name
+      tag_values      = pydicom.dcmread(sample_image_file)
+      sequence_name   = tag_values.get((0x0019, 0x109c), "Unknown")
+
+      sort_method     = '-sort_by_num_suffix'
+      file_pattern    = delimiter_path.join(['/export', 'home1', 'sdc_image_pool', 'images'] +
+                                            file_pattern.split(delimiter_path)[-4:])
+
+      # SSH is being used to run Dimon back on the scanner console, as over NFS, image write
+      # performance doesn't seem to be sufficient to allow Dimon to detect, read, and send
+      # image data reliably to AFNI.  So run Dimon in way that is reads images 'locally' and
+      # from there, will send to AFNI ...
+      host_afni       = 'afnipc'
+      dimon_cmd       = ['ssh', 'sdc@mrconsole', 'Dimon', '-quit', '-rt', '-host', host_afni,
+                         sort_method, '-infile_prefix', file_pattern]
+
+      if ('epi' in sequence_name.value.lower()):
+         num_time_pts = tag_values.get((0x0020, 0x0105), "1")
+         dimon_cmd   += ['-rt_cmd', f'"GRAPH_XRANGE {str(num_time_pts.value)}"']
 
    elif (scanner_vendor == 'Siemens'):
 
-      delimiter    = '_'
-      file_pattern = delimiter.join(sample_image_file.split(delimiter)[:-1])
+      delimiter       = '_'
+      file_pattern    = delimiter.join(sample_image_file.split(delimiter)[:-1])
 
-      # For EPI images, Dicom tag ????,???? gives number of time points, and
-      #
-      # for all sequences, tags 0018,0020/0024 should give the pulse sequence
-      # name
+      # there should be at least 1 image written per series
+      tag_values      = pydicom.dcmread(file_pattern + "_000001.dcm")
+      sequence_name   = tag_values.get((0x0018, 0x0024), "Unknown")
+
+      dimon_cmd     = ['Dimon', '-quit', '-rt', '-host', host_afni,
+                        sort_method, '-infile_prefix', file_pattern]
+
+      # Need to verify that 'ep' and '2d' in pulse sequence name is sufficient
+      # to capture used EPI pulse sequences (from which real-time data would
+      # be wanted), but verified that the below would work for Siemens product
+      # and CMRR EPI sequences. No action taken yet - just verifying that this
+      # state can be captured.
+      if (('ep' in sequence_name.value.lower()) and
+          ('2d' in sequence_name.value.lower())):
+         scan_event_logger.warning ("Acquiring data from an EPI-based sequence")
+         # fixing a number of time points for now, till I can figure out how
+         # to get number of time points from header of EPI data.
+         dimon_cmd   += ['-rt_cmd', f'"GRAPH_XRANGE 300"']
 
    else:
 
-      print(f'Vendor {scanner_vendor} unsupported - not sending data ...')
+      scan_event_logger.debug(f'Vendor {scanner_vendor} unsupported - not sending data ...')
       return
 
-   print(f'Launching Dimon on file pattern {file_pattern}')
+   scan_event_logger.warning(f'Launching Dimon on file pattern {file_pattern}')
 
-   global dimon_process
-   dimon_process = subprocess.Popen(['Dimon', '-quit', '-rt',
-                                     '-host', host_dest,
-                                     sort_method,
-                                     '-infile_prefix', file_pattern],
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE,
-                                     text=True)
+   dimon_process = subprocess.Popen(dimon_cmd,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
+
+   # stdout, stderr = dimon_process.communicate()
 
 
 
