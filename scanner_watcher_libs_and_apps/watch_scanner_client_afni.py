@@ -230,6 +230,9 @@ def send_image_data(sample_image_file, host_dest):
       # there should be at least 1 image written per series
       tag_values      = pydicom.dcmread(file_pattern + "_000001.dcm")
       sequence_name   = tag_values.get((0x0018, 0x0024), "Unknown")
+      series_dscrpt   = tag_values.get((0x0008, 0x103e), "Unknown")
+
+      print(f"Sequence name is: {sequence_name.value.lower()}")
 
       dimon_cmd     = ['Dimon', '-quit', '-rt', '-host', host_afni,
                         sort_method, '-infile_prefix', file_pattern]
@@ -244,8 +247,24 @@ def send_image_data(sample_image_file, host_dest):
          scan_event_logger.warning ("Acquiring data from an EPI-based sequence")
          # fixing a number of time points for now, till I can figure out how
          # to get number of time points from header of EPI data.
-         dimon_cmd   += ['-rt_cmd', f'"GRAPH_XRANGE 300"']
+         dimon_cmd   += ['-rt_cmd', f'"GRAPH_XRANGE 300"', '-nt', '300']
+      # Also handle MP-RAGE as that's of interest for real-time applications
+      elif (('tfl'  in sequence_name.value.lower()) and
+            ('3d'   in sequence_name.value.lower()) and
+            ('mp'   in series_dscrpt.value.lower()) and
+            ('rage' in series_dscrpt.value.lower())):
+         scan_event_logger.warning ("Acquiring data from a 3D-FLASH sequence")
 
+         # Without anything else - should 'just run' default dimon_cmd array
+         # set above for this vendor
+
+      # Otherwise, if other data are collected and needed, tell user how to
+      # send to AFNI, but ignore by default for the time-being.
+      else:
+         print(f"If AFNI data from this series is needed, run command: {
+                 ' '.join(dimon_cmd)}")
+         # And 'nullify' Dimon command, to not take any action here.
+         dimon_cmd = ['echo']
    else:
 
       scan_event_logger.debug(f'Vendor {scanner_vendor} unsupported - not sending data ...')
