@@ -29,7 +29,7 @@ scan_event_logger   = logging.getLogger(__name__)
 
 # create a few global variables to help with scanner state tracking
 global patient_in_scanner, afni_running, pid_afni, data_being_acquired, pid_dimon
-global last_data_dir_dicom
+global last_data_dir_dicom, scanner_vendor
 
 
 
@@ -54,6 +54,9 @@ async def poll_state(polling_interval, host = '127.0.0.1', port = 5555):
                                                 # ast.literal_eval() to do this
       # Extract desired information from packet
       current_state_dict = data['all_events']
+
+      global scanner_vendor
+      scanner_vendor = data['scanner vendor']
 
       scan_event_logger.info('Scanner: ' + data['scanner AE Title']
             + " from vendor: " + data['scanner vendor'] + " has events: "
@@ -190,8 +193,9 @@ def send_image_data(sample_image_file, host_dest):
        being written to host_dest.
    """
 
+   global scanner_vendor
+
    delimiter_path  = '/'
-   scanner_vendor  = os.environ['MRI_SCANNER_VENDOR']
    file_pattern    = delimiter_path.join(sample_image_file.split(delimiter_path)[:-1]) + delimiter_path + '*.dcm'
    sort_method     = '-dicom_org'
    drive_afni_opts = ''
@@ -287,7 +291,6 @@ async def gather_and_run_client_tasks():
 
    environment_vars = ['MRI_SCANNER_INFO_PUBLISH_TO_HOST',
                        'MRI_SCANNER_INFO_PUBLISH_TO_PORT',
-                       'MRI_SCANNER_VENDOR',
                        'MRI_SCANNER_DATA_DIR_DICOM',
                        'MRI_SCANNER_DATA_DIR_AFNI']
 
