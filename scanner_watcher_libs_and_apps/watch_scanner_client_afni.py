@@ -274,7 +274,8 @@ def send_image_data(sample_image_file, host_dest):
       scan_event_logger.debug(f'Vendor {scanner_vendor} unsupported - not sending data ...')
       return
 
-   scan_event_logger.warning(f'Launching Dimon on file pattern {file_pattern}')
+   if (dimon_cmd != ['echo']):
+      scan_event_logger.warning(f'Launching Dimon on file pattern {file_pattern}')
 
    dimon_process = subprocess.Popen(dimon_cmd,
                                     stdout=subprocess.PIPE,
